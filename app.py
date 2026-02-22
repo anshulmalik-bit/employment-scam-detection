@@ -71,18 +71,29 @@ def load_artifacts():
     if not os.path.exists(PIPELINE_PATH):
         return None
     
-    # Needs the TextPreprocessor dynamically in context
-    import sys
-    sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
+    # Critical: Streamlit Cloud needs the module exactly as it was when saved
+    # We add 'src' to path so 'import preprocessing' works
+    src_path = os.path.join(os.path.dirname(__file__), 'src')
+    if src_path not in sys.path:
+        sys.path.append(src_path)
+    
     try:
+        # Import the class so joblib can find it
+        import preprocessing
         from preprocessing import TextPreprocessor
-        # Re-register into global so pickle finds it
-        sys.modules['preprocessing'] = sys.modules['preprocessing']
-    except ImportError:
-        pass
+        # Ensure it's available in the global namespace for unpickling
+        import imblearn
+        from imblearn.pipeline import Pipeline as ImbPipeline
+    except ImportError as e:
+        st.error(f"Missing dependency or module: {e}")
+        return None
         
-    pipeline = joblib.load(PIPELINE_PATH)
-    return pipeline
+    try:
+        pipeline = joblib.load(PIPELINE_PATH)
+        return pipeline
+    except Exception as e:
+        st.error(f"Error loading model: {e}")
+        return None
 
 pipeline = load_artifacts()
 
