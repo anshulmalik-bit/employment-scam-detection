@@ -44,8 +44,6 @@ def train_and_evaluate():
     text_preprocessor = TextPreprocessor(max_features=5000, ngram_range=(1, 2))
     
     # Column transformer to apply TF-IDF to 'text', and pass through the metadata columns unchanged
-    # We must wrap text transformation in a pipeline because ColumnTransformer expects fit_transform
-    # to be called on a 1D/2D array, and TextPreprocessor expects a list of strings
     preprocessor = ColumnTransformer(
         transformers=[
             ('text', text_preprocessor.vectorizer, 'text'), 
@@ -56,41 +54,39 @@ def train_and_evaluate():
     
     # Clean text columns before passing them into the transformer pipeline
     print("Cleaning text data for TFIDF...")
+    X = X.copy()
     X['text'] = [text_preprocessor.clean_text(doc) for doc in X['text']]
 
     print("Splitting dataset into 80% train / 20% test...")
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     
-    # 2. Build the imblearn Pipeline with SMOTE and the Classifier
-    print("Building Random Forest Pipeline with SMOTE...")
-    rf_pipeline = ImbPipeline(steps=[
-        ('preprocessor', preprocessor),
-        ('smote', SMOTE(random_state=42)),
-        ('classifier', RandomForestClassifier(n_estimators=100, class_weight='balanced', random_state=42, n_jobs=-1))
-    ])
+    # 2. Fit the ColumnTransformer on training data
+    print("Fitting ColumnTransformer (TF-IDF + Metadata)...")
+    X_train_transformed = preprocessor.fit_transform(X_train)
+    X_test_transformed = preprocessor.transform(X_test)
     
-    # Train the Random Forest Model Pipeline
-    print("Training Random Forest Pipeline...")
-    rf_pipeline.fit(X_train, y_train)
+    # 3. Apply SMOTE on the ALREADY-TRANSFORMED training data
+    print("Applying SMOTE to balance training data...")
+    smote = SMOTE(random_state=42)
+    X_train_resampled, y_train_resampled = smote.fit_resample(X_train_transformed, y_train)
+    print(f"  Before SMOTE: {len(y_train)} samples | After SMOTE: {len(y_train_resampled)} samples")
     
-    print("Evaluating Random Forest Pipeline (V2 with SMOTE & Metadata):")
-    y_pred_rf = rf_pipeline.predict(X_test)
+    # 4. Train the Random Forest on the resampled data
+    print("Training Random Forest Classifier (with balanced class weights)...")
+    rf_model = RandomForestClassifier(n_estimators=100, class_weight='balanced', random_state=42, n_jobs=-1)
+    rf_model.fit(X_train_resampled, y_train_resampled)
+    
+    print("Evaluating Random Forest (V2 with SMOTE & Metadata):")
+    y_pred_rf = rf_model.predict(X_test_transformed)
     print(classification_report(y_test, y_pred_rf))
     
-    # Print feature names to verify N-Grams and columns
-    print("\nExtracting feature names out...")
-    try:
-        tfidf_features = rf_pipeline.named_steps['preprocessor'].transformers_[0][1].get_feature_names_out()
-        all_features = list(tfidf_features) + ['has_company_logo', 'has_questions', 'telecommuting']
-        print(f"Total features extracted: {len(all_features)} (including N-Grams and metadata)")
-    except Exception as e:
-        print("Note: Could not extract specific feature names for debugging:", e)
-        
-    # We will save the entire fitted pipeline because it contains the text vectorizer, metadata passthrough, and model
-    print("Saving the full Random Forest Pipeline (Model V2)...")
-    joblib.dump(rf_pipeline, os.path.join(MODELS_DIR, 'rf_pipeline_v2.joblib'))
+    # 5. Save the components SEPARATELY (no imblearn in saved artifacts!)
+    # This way the app only needs scikit-learn to load them
+    print("Saving model components separately for cloud compatibility...")
+    joblib.dump(preprocessor, os.path.join(MODELS_DIR, 'column_transformer.joblib'))
+    joblib.dump(rf_model, os.path.join(MODELS_DIR, 'rf_model_v2.joblib'))
     joblib.dump(text_preprocessor, os.path.join(MODELS_DIR, 'text_cleaner.joblib'))
-    print(f"Pipeline and artifacts saved in {MODELS_DIR}")
+    print(f"All artifacts saved in {MODELS_DIR}")
 
 if __name__ == "__main__":
     train_and_evaluate()

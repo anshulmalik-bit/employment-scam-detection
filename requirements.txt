@@ -5,4 +5,3 @@ nltk
 streamlit
 requests
 joblib
-imbalanced-learn

@@ -1,10 +1,18 @@
 import os
+import sys
 import joblib
 import streamlit as st
 import pandas as pd
 
+# Add 'src' to path so the TextPreprocessor class can be found during unpickling
+src_path = os.path.join(os.path.dirname(__file__), 'src')
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
 MODELS_DIR = os.path.join(os.path.dirname(__file__), 'models')
-PIPELINE_PATH = os.path.join(MODELS_DIR, 'rf_pipeline_v2.joblib')
+TRANSFORMER_PATH = os.path.join(MODELS_DIR, 'column_transformer.joblib')
+MODEL_PATH = os.path.join(MODELS_DIR, 'rf_model_v2.joblib')
+TEXT_CLEANER_PATH = os.path.join(MODELS_DIR, 'text_cleaner.joblib')
 
 # Set page config
 st.set_page_config(
@@ -31,7 +39,7 @@ st.markdown("""
     }
     .high-risk {
         color: white;
-        background-color: #D32F2F; /* Red */
+        background-color: #D32F2F;
         padding: 15px;
         border-radius: 5px;
         text-align: center;
@@ -39,7 +47,7 @@ st.markdown("""
     }
     .amber-risk {
         color: black;
-        background-color: #FFC107; /* Amber/Yellow */
+        background-color: #FFC107;
         padding: 15px;
         border-radius: 5px;
         text-align: center;
@@ -47,7 +55,7 @@ st.markdown("""
     }
     .low-risk {
         color: white;
-        background-color: #388E3C; /* Green */
+        background-color: #388E3C;
         padding: 15px;
         border-radius: 5px;
         text-align: center;
@@ -65,40 +73,24 @@ Prepared for: **Preeti Mam** | Course: **Business Analysis using Python**
 
 st.divider()
 
-# Load Model Pipeline
+# Load Model Components (no imblearn needed!)
 @st.cache_resource
 def load_artifacts():
-    if not os.path.exists(PIPELINE_PATH):
-        return None
-    
-    # Critical: Streamlit Cloud needs the module exactly as it was when saved
-    # We add 'src' to path so 'import preprocessing' works
-    src_path = os.path.join(os.path.dirname(__file__), 'src')
-    if src_path not in sys.path:
-        sys.path.append(src_path)
-    
+    if not os.path.exists(TRANSFORMER_PATH) or not os.path.exists(MODEL_PATH) or not os.path.exists(TEXT_CLEANER_PATH):
+        return None, None, None
     try:
-        # Import the class so joblib can find it
-        import preprocessing
-        from preprocessing import TextPreprocessor
-        # Ensure it's available in the global namespace for unpickling
-        import imblearn
-        from imblearn.pipeline import Pipeline as ImbPipeline
-    except ImportError as e:
-        st.error(f"Missing dependency or module: {e}")
-        return None
-        
-    try:
-        pipeline = joblib.load(PIPELINE_PATH)
-        return pipeline
+        transformer = joblib.load(TRANSFORMER_PATH)
+        model = joblib.load(MODEL_PATH)
+        text_cleaner = joblib.load(TEXT_CLEANER_PATH)
+        return transformer, model, text_cleaner
     except Exception as e:
-        st.error(f"Error loading model: {e}")
-        return None
+        st.error(f"Error loading model artifacts: {e}")
+        return None, None, None
 
-pipeline = load_artifacts()
+transformer, model, text_cleaner = load_artifacts()
 
-if pipeline is None:
-    st.error("⚠️ Model Pipeline V2 not found. Please train the robust model by running `python src/train_model.py`.")
+if transformer is None or model is None:
+    st.error("⚠️ Model artifacts not found. Please train the model first by running `python src/train_model.py`.")
 else:
     col1, col2 = st.columns([2, 1.5])
     
@@ -127,16 +119,20 @@ else:
                     # Combine text similarly to training
                     combined_text = f"{job_title} {company_profile} {job_description}"
                     
+                    # Clean matching training preprocessing
+                    cleaned_text = text_cleaner.clean_text(combined_text)
+                    
                     # Create Pandas DataFrame matching training features
                     input_df = pd.DataFrame([{
-                        'text': combined_text,
+                        'text': cleaned_text,
                         'has_company_logo': 1 if has_logo else 0,
                         'has_questions': 1 if has_questions else 0,
                         'telecommuting': 1 if is_telecommuting else 0
                     }])
                     
-                    # Predict using full pipeline
-                    probability = pipeline.predict_proba(input_df)[0][1] # Probability of Class 1 (Fraud)
+                    # Transform then predict (2-step, no pipeline needed)
+                    X_transformed = transformer.transform(input_df)
+                    probability = model.predict_proba(X_transformed)[0][1]
                     prob_percentage = probability * 100
                     
                     st.metric(label="Calculated Fraud Probability", value=f"{prob_percentage:.1f}%")
