@@ -2,6 +2,6 @@ pandas
 numpy
 scikit-learn
 nltk
-streamlit
+streamlit>=1.38.0
 requests
 joblib
