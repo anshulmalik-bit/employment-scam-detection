@@ -25,10 +25,10 @@ except LookupError:
 
 
 class TextPreprocessor:
-    def __init__(self, max_features=5000):
+    def __init__(self, max_features=5000, **kwargs):
         self.stop_words = set(stopwords.words('english'))
         self.lemmatizer = WordNetLemmatizer()
-        self.vectorizer = TfidfVectorizer(max_features=max_features)
+        self.vectorizer = TfidfVectorizer(max_features=max_features, **kwargs)
         
     def clean_text(self, text):
         """ Lowercase, remove punctuation and numbers, tokenize, lemmatize, and remove stop words """

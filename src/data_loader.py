@@ -44,6 +44,16 @@ def load_data():
     # We will combine 'title', 'company_profile', and 'description' as main textual features
     df['text'] = df['title'] + " " + df['company_profile'] + " " + df['description']
     
+    # Ensure binary metadata columns exist and fill them with 0 if missing
+    metadata_cols = ['has_company_logo', 'has_questions', 'telecommuting']
+    for col in metadata_cols:
+        if col not in df.columns:
+            df[col] = 0
+            
+    # Return dataframe containing only the necessary columns for memory efficiency
+    cols_to_keep = ['text', 'fraudulent'] + metadata_cols
+    df = df[cols_to_keep]
+    
     return df
 
 if __name__ == "__main__":
